@@ -63,6 +63,19 @@ def init_database():
         )
     """)
     
+    # Table for storing ticker info (company name, market cap, etc.)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ticker_info (
+            ticker TEXT PRIMARY KEY,
+            company_name TEXT,
+            market_cap TEXT,
+            pe_ratio TEXT,
+            fifty_two_week_high TEXT,
+            fifty_two_week_low TEXT,
+            last_updated TIMESTAMP
+        )
+    """)
+    
     # Create index for faster queries
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_ticker_date 
@@ -71,7 +84,6 @@ def init_database():
     
     conn.commit()
     conn.close()
-    print("Database initialized")
 
 def needs_update(ticker, hours=24):
     """Check if ticker needs updating (older than X hours)"""
@@ -147,7 +159,6 @@ def save_stock_data_to_db(ticker, data):
     
     conn.commit()
     conn.close()
-    print(f"Saved {len(df)} records for {ticker}")
 
 def load_stock_data_from_db(ticker, start_date="2014-01-01"):
     """Load stock data from database"""
@@ -187,13 +198,11 @@ def get_stock_data_smart(ticker, start_date="2014-01-01"):
     
     # Check if we need to update
     if not needs_update(ticker, hours=24):
-        print(f"Loading {ticker} from database (cached)")
         data = load_stock_data_from_db(ticker, start_date)
         if data is not None and not data.empty:
             return data, None
     
     # Need to download fresh data
-    print(f"Downloading {ticker} from Yahoo Finance...")
     try:
         time.sleep(2)  # Rate limiting
         end_date = date.today().strftime("%Y-%m-%d")
@@ -208,13 +217,82 @@ def get_stock_data_smart(ticker, start_date="2014-01-01"):
         return data, None
         
     except Exception as e:
-        print(f"Error downloading {ticker}: {str(e)}")
         # Try to return cached data even if old
         data = load_stock_data_from_db(ticker, start_date)
         if data is not None and not data.empty:
-            print(f"Returning old cached data for {ticker}")
             return data, None
         return None, str(e)
+
+def save_ticker_info(ticker, info):
+    """Save ticker information to database"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Safely convert values, handling None
+    def safe_str(value):
+        if value is None or value == '' or (isinstance(value, float) and pd.isna(value)):
+            return 'N/A'
+        return str(value)
+    
+    cursor.execute("""
+        INSERT OR REPLACE INTO ticker_info 
+        (ticker, company_name, market_cap, pe_ratio, fifty_two_week_high, fifty_two_week_low, last_updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        ticker,
+        safe_str(info.get('longName', ticker)),
+        safe_str(info.get('marketCap')),
+        safe_str(info.get('trailingPE')),
+        safe_str(info.get('fiftyTwoWeekHigh')),
+        safe_str(info.get('fiftyTwoWeekLow')),
+        datetime.now().isoformat()
+    ))
+    
+    conn.commit()
+    conn.close()
+
+def get_ticker_info(ticker):
+    """Get ticker information from database"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT company_name, market_cap, pe_ratio, fifty_two_week_high, fifty_two_week_low, last_updated
+            FROM ticker_info WHERE ticker = ?
+        """, (ticker,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result is None:
+            return None
+        
+        # Check if info is older than 7 days
+        last_updated = datetime.fromisoformat(result[5])
+        days_old = (datetime.now() - last_updated).days
+        
+        if days_old > 7:
+            return None  # Info too old, need to refresh
+        
+        # Convert string values back to appropriate types
+        def safe_convert(value):
+            if value == 'N/A' or value == 'None':
+                return 'N/A'
+            try:
+                return int(value) if value.replace('.', '').isdigit() else value
+            except:
+                return value
+        
+        return {
+            'longName': result[0],
+            'marketCap': safe_convert(result[1]),
+            'trailingPE': safe_convert(result[2]),
+            'fiftyTwoWeekHigh': safe_convert(result[3]),
+            'fiftyTwoWeekLow': safe_convert(result[4])
+        }
+    except Exception as e:
+        return None
 
 # ==================== ORIGINAL FUNCTIONS (MODIFIED) ====================
 
@@ -245,7 +323,6 @@ def load_model_for_ticker(ticker):
         model = keras.models.load_model(model_path)
         scaler = joblib.load(scaler_path)
         loaded_models[ticker] = {'model': model, 'scaler': scaler}
-        print(f"Loaded model and scaler for {ticker}")
         return model, scaler, None
     except Exception as e:
         return None, None, f"Error loading model for {ticker}: {str(e)}"
@@ -365,12 +442,36 @@ def predict_stock(ticker):
         chart_data.columns = ['Date', 'Close']
         chart_data['Date'] = chart_data['Date'].dt.strftime('%Y-%m-%d')
         
-        # Get stock info (cache it too)
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.info
-        except:
+        # Get stock info - try cache first, then fetch if needed
+        info = get_ticker_info(ticker)
+        
+        if info is None:
+            # Not in cache or too old, fetch fresh
+            try:
+                stock = yf.Ticker(ticker)
+                info = stock.info
+                
+                # Validate info is not empty
+                if info and len(info) > 0:
+                    save_ticker_info(ticker, info)
+                else:
+                    info = {}
+            except Exception as e:
+                info = {}
+        
+        # Ensure info dict exists even if all fetches failed
+        if not info:
             info = {}
+        
+        # Format info values - convert to float if possible, otherwise keep as string
+        def format_info_value(value):
+            if value == 'N/A' or value is None:
+                return None  # Return None instead of 'N/A' for JSON
+            try:
+                # Try to convert to number
+                return float(value)
+            except (ValueError, TypeError):
+                return value
         
         result = {
             'ticker': ticker.upper(),
@@ -380,10 +481,10 @@ def predict_stock(ticker):
             'price_change': round(price_change, 2),
             'percent_change': round(percent_change, 2),
             'recommendation': 'BUY' if percent_change > 1 else ('SELL' if percent_change < -1 else 'HOLD'),
-            'market_cap': info.get('marketCap', 'N/A'),
-            'pe_ratio': info.get('trailingPE', 'N/A'),
-            'fifty_two_week_high': info.get('fiftyTwoWeekHigh', 'N/A'),
-            'fifty_two_week_low': info.get('fiftyTwoWeekLow', 'N/A'),
+            'market_cap': format_info_value(info.get('marketCap', 'N/A')),
+            'pe_ratio': format_info_value(info.get('trailingPE', 'N/A')),
+            'fifty_two_week_high': format_info_value(info.get('fiftyTwoWeekHigh', 'N/A')),
+            'fifty_two_week_low': format_info_value(info.get('fiftyTwoWeekLow', 'N/A')),
             'ma20': round(float(df['MA20'].iloc[-1]), 2),
             'ma50': round(float(df['MA50'].iloc[-1]), 2),
             'ma100': round(float(df['MA100'].iloc[-1]), 2),
@@ -486,7 +587,6 @@ def health():
 # Initialize database when app starts
 with app.app_context():
     init_database()
-    print("App ready with database caching!")
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
