@@ -8,6 +8,10 @@ import yfinance as yf
 from datetime import date
 from tensorflow import keras
 import joblib
+import time
+
+DATA_CACHE = {}
+CACHE_TTL = 60 * 30  # 30 minutes
 
 # Absolute paths (Vercel-safe)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -99,7 +103,14 @@ def prepare_data(ticker):
         start_date = "2014-01-01"
         end_date = date.today().strftime("%Y-%m-%d")
 
-        data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True, progress=False)
+        now = time.time()
+
+        if ticker in DATA_CACHE and now - DATA_CACHE[ticker]["time"] < CACHE_TTL:
+            data = DATA_CACHE[ticker]["data"]
+        else:
+            data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True, progress=False)
+            DATA_CACHE[ticker] = {"data": data, "time": now}
+
 
         if data.empty:
             return None, None, "No data found for this ticker symbol"
@@ -187,8 +198,13 @@ def predict_stock(ticker):
         chart_data.columns = ['Date', 'Close']
         chart_data['Date'] = chart_data['Date'].dt.strftime('%Y-%m-%d')
 
-        stock = yf.Ticker(ticker)
-        info = stock.info
+        if ticker in DATA_CACHE and "info" in DATA_CACHE[ticker]:
+            info = DATA_CACHE[ticker]["info"]
+        else:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            DATA_CACHE.setdefault(ticker, {})["info"] = info
+
 
         result = {
             'ticker': ticker.upper(),
