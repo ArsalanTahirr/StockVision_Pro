@@ -44,7 +44,7 @@ StockVision_Pro/
 - **NumPy & Pandas** - Data processing
 - **Scikit-learn** - Feature scaling
 - **Yahoo Finance (yfinance)** - Market data API
-- **Vercel** - Serverless deployment
+- **Render** - deployment
 
 ---
 
@@ -85,9 +85,9 @@ The prediction response includes:
 
 ## Deployment
 
-StockVision Pro is deployed on **Vercel** as a serverless Flask API using a custom `api/index.py` entry point.
+StockVision Pro is deployed on **Render** with continuous deployment from GitHub. 
 
-The frontend and backend are served from a single Vercel project.
+The Flask API runs as a web service, and both frontend and backend are managed from a single repository.
 
 ---
 
