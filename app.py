@@ -373,7 +373,7 @@ def prepare_data(ticker):
         
         # Drop NaN values
         df = df.dropna()
-        df = df.drop(columns=['High', 'Low', 'Open', 'Volume'], axis=1, errors='ignore')
+        df = df.drop(columns=['High', 'Low', 'Open', 'Volume'], errors='ignore')
         
         if len(df) < 100:
             return None, None, "Not enough historical data for prediction"
