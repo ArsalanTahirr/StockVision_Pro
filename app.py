@@ -452,7 +452,8 @@ def predict_stock(ticker):
                 info = stock.info
                 
                 # Validate info is not empty
-                if info and len(info) > 0:
+                if info and info.get('marketCap') and info.get('trailingPE'):
+                    # Only cache it if we actually got the good stuff!
                     save_ticker_info(ticker, info)
                 else:
                     info = {}
