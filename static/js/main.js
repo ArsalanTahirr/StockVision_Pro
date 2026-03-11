@@ -10,6 +10,9 @@ const resultsSection = document.getElementById('resultsSection');
 let priceChart = null;
 let comparisonChart = null;
 
+// Store available models for instant frontend validation
+let validTickersList = [];
+
 // Event Listeners
 document.addEventListener('DOMContentLoaded', () => {
     loadSavedTheme();
@@ -25,6 +28,9 @@ async function loadAvailableModels() {
         const data = await response.json();
         
         if (data.available_tickers && data.available_tickers.length > 0) {
+            // Save the list to our global variable
+            validTickersList = data.available_tickers;
+
             container.innerHTML = data.available_tickers.map(ticker => 
                 `<button class="ticker-chip" data-ticker="${ticker}">${ticker}</button>`
             ).join('');
@@ -73,8 +79,32 @@ async function handlePredict() {
     const ticker = tickerInput.value.trim().toUpperCase();
     
     if (!ticker) {
-        showError('Please enter a stock ticker symbol');
-        return;
+        tickerInput.parentElement.classList.add('shake-error');
+        tickerInput.placeholder = "Please enter a ticker (e.g., AAPL)...";
+        
+        // Remove the shake class after animation finishes so it can trigger again
+        setTimeout(() => {
+            tickerInput.parentElement.classList.remove('shake-error');
+            tickerInput.placeholder = "Enter stock ticker (e.g., AAPL, MSFT, GOOGL)";
+        }, 1000);
+        return; // Stop here, do NOT trigger showError()
+    }
+
+    if (validTickersList.length > 0 && !validTickersList.includes(ticker)) {
+        tickerInput.parentElement.classList.add('shake-error');
+        
+        // Temporarily clear what they typed and show a custom error in the placeholder
+        const originalInput = tickerInput.value;
+        tickerInput.value = '';
+        tickerInput.placeholder = `'${ticker}' is not supported yet!`;
+        
+        setTimeout(() => {
+            tickerInput.parentElement.classList.remove('shake-error');
+            tickerInput.value = originalInput; // Put their typo back so they can fix it
+            tickerInput.placeholder = "Enter stock ticker (e.g., AAPL, MSFT, GOOGL)";
+        }, 2000); // Give them 2 seconds to read the message
+        
+        return; // Stop execution! No API call is made.
     }
     
     showLoading();
@@ -202,20 +232,33 @@ function displayResults(data) {
     createComparisonChart(data);
     
     // Scroll to results
-    resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const yOffset = -90; // The height of your navbar + a little padding
+    const y = resultsSection.getBoundingClientRect().top + window.scrollY + yOffset;
+
+    window.scrollTo({
+        top: y,
+        behavior: 'smooth'
+    });
 }
 
 function createPriceChart(data) {
     const ctx = document.getElementById('priceChart').getContext('2d');
     
-    // Destroy existing chart
-    if (priceChart) {
-        priceChart.destroy();
-    }
+    if (priceChart) priceChart.destroy();
+    
+    // DETECT MOBILE AND REDUCE DATA
+    const isMobile = window.innerWidth < 768;
+    const dataLimit = isMobile ? data.chart_dates.length / 4 : data.chart_dates.length; 
+    
+    // Slice the arrays to only grab the most recent data points
+    const recentDates = data.chart_dates.slice(-dataLimit);
+    const recentPrices = data.chart_prices.slice(-dataLimit);
     
     // Prepare data
-    const labels = [...data.chart_dates, 'Predicted'];
-    const prices = [...data.chart_prices, data.predicted_price];
+    const labels = [...recentDates, 'Predicted'];
+    const prices = [...recentPrices, data.predicted_price];
+
+    const lineWidth = isMobile ? 1.5 : 2;
     
     // Create gradient
     const gradient = ctx.createLinearGradient(0, 0, 0, 350);
@@ -231,7 +274,7 @@ function createPriceChart(data) {
                 data: prices,
                 borderColor: '#6366f1',
                 backgroundColor: gradient,
-                borderWidth: 2,
+                borderWidth: lineWidth,
                 fill: true,
                 tension: 0.4,
                 pointRadius: 0,
@@ -291,10 +334,22 @@ function createPriceChart(data) {
                     },
                     ticks: {
                         color: '#64748b',
-                        maxRotation: 45,
-                        maxTicksLimit: 10,
-                        font: {
-                            size: 11
+                        // Show fewer ticks on mobile
+                        maxTicksLimit: window.innerWidth < 768 ? 5 : 10,
+                        font: { 
+                            size: window.innerWidth < 768 ? 10 : 11 
+                        },
+                        // Format the date to drop the year on mobile
+                        callback: function(value) {
+                            const label = this.getLabelForValue(value);
+                            
+                            // If it's a mobile screen, and it's a date (contains '-'), shorten it
+                            if (window.innerWidth < 768 && label && label.includes('-')) {
+                                const parts = label.split('-'); // Splits "2026-02-13" into ["2026", "02", "13"]
+                                return `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`; // Returns "13/02/26"
+                            }
+                            
+                            return label; // Keep "Predicted" or full date for desktop
                         }
                     }
                 },
@@ -326,17 +381,31 @@ function createComparisonChart(data) {
         comparisonChart.destroy();
     }
     
+    // DETECT MOBILE AND REDUCE DATA
+    const isMobile = window.innerWidth < 768;
+    // Limit to the last 30 days on mobile to prevent a cluttered "spaghetti" chart
+    const dataLimit = isMobile ? data.comparison_labels.length / 4 : data.comparison_labels.length; 
+    
+    // Slice all three arrays to grab only the most recent data points
+    const recentLabels = data.comparison_labels.slice(-dataLimit);
+    const recentActuals = data.actual_prices.slice(-dataLimit);
+    const recentPredicteds = data.predicted_prices.slice(-dataLimit);
+
+    // NEW: Set line width based on screen size (1.5px for mobile, 2.5px for desktop)
+    const lineWidth = isMobile ? 1.5 : 2.5;
+    
     comparisonChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: data.comparison_labels,
+            // Use the new sliced arrays here!
+            labels: recentLabels,
             datasets: [
                 {
                     label: 'Actual Price',
-                    data: data.actual_prices,
+                    data: recentActuals,
                     borderColor: '#3b82f6',
                     backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    borderWidth: 2.5,
+                    borderWidth: lineWidth,
                     fill: false,
                     tension: 0.3,
                     pointRadius: 0,
@@ -347,10 +416,10 @@ function createComparisonChart(data) {
                 },
                 {
                     label: 'Predicted Price',
-                    data: data.predicted_prices,
+                    data: recentPredicteds,
                     borderColor: '#22c55e',
                     backgroundColor: 'rgba(34, 197, 94, 0.1)',
-                    borderWidth: 2.5,
+                    borderWidth: lineWidth,
                     fill: false,
                     tension: 0.3,
                     pointRadius: 0,
@@ -408,10 +477,9 @@ function createComparisonChart(data) {
                     },
                     ticks: {
                         color: '#64748b',
-                        maxTicksLimit: 15,
-                        font: {
-                            size: 11
-                        }
+                        // If screen is smaller than 768px, show 6 dates. Otherwise, show 15.
+                        maxTicksLimit: window.innerWidth < 768 ? 6 : 15,
+                        font: { size: 11 }
                     }
                 },
                 y: {

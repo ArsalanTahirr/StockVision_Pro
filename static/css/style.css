@@ -1392,8 +1392,15 @@ body {
     display: none !important;
 }
 
-/* Responsive Adjustments */
+/* ==========================================
+   MOBILE RESPONSIVE ADJUSTMENTS
+   ========================================== */
 @media (max-width: 768px) {
+    /* 1. Give mobile users more screen real estate */
+    .main-content {
+        padding: 80px var(--spacing-md) var(--spacing-xl);
+    }
+    
     .navbar {
         padding: var(--spacing-md);
     }
@@ -1402,43 +1409,98 @@ body {
         display: none;
     }
     
+    /* 2. Stack the Stock Header cleanly and center it */
     .stock-header {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: center;
+        text-align: center;
         gap: var(--spacing-lg);
+    }
+    
+    .stock-info {
+        flex-direction: column;
+        gap: var(--spacing-sm);
     }
     
     .stock-metrics {
         width: 100%;
-        justify-content: space-between;
+        justify-content: center;
+        gap: var(--spacing-xl);
     }
     
+    .metric-item {
+        text-align: center;
+    }
+    
+    /* 3. Streamline the Search Bar for Mobile */
     .search-wrapper {
-        flex-direction: column;
-        padding: var(--spacing-md);
-        gap: var(--spacing-md);
+        flex-direction: row; /* Keep it horizontal */
+        padding: 4px 4px 4px 16px;
+        border-radius: var(--radius-full);
+    }
+    
+    .search-icon {
+        display: none; 
     }
     
     .search-input {
         width: 100%;
-        text-align: center;
+        text-align: left;
+        padding: var(--spacing-sm) 0;
+        font-size: 0.85rem; /* Slightly smaller font */
+        
+        /* Add these 3 lines to fix the overlap */
+        min-width: 0; 
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
     
     .predict-btn {
-        width: 100%;
-        justify-content: center;
+        width: auto;
+        padding: var(--spacing-sm) var(--spacing-lg);
+        border-radius: var(--radius-full);
     }
     
-    .range-container {
+    /* Hide the word 'Analyze' and just show the arrow on phones */
+    .predict-btn .btn-text {
+        display: none;
+    }
+
+    /* 4. Prevent Chart Titles and Legends from colliding */
+    .chart-header {
         flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-md);
     }
     
-    .range-track {
-        width: 100%;
+    .chart-legend {
+        flex-wrap: wrap;
     }
     
+    /* 5. FIX: Keep the 52-Week Range horizontal, just shrink the text */
+    .range-container {
+        flex-direction: row; 
+        gap: var(--spacing-sm);
+    }
+    
+    .range-endpoint {
+        min-width: 60px;
+    }
+    
+    .range-value {
+        font-size: 0.9rem;
+    }
+    
+    /* 6. Stack the Model Info Card */
+    .model-card {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    /* 7. Center the Footer Disclaimer */
     .disclaimer {
         flex-direction: column;
+        align-items: center;
         text-align: center;
     }
 }
@@ -1463,4 +1525,17 @@ body {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+.shake-error {
+    animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+    border: 1px solid var(--danger) !important;
+    box-shadow: 0 0 0 4px var(--danger-light) !important;
+}
+
+@keyframes shake {
+    10%, 90% { transform: translate3d(-1px, 0, 0); }
+    20%, 80% { transform: translate3d(2px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+    40%, 60% { transform: translate3d(4px, 0, 0); }
 }
